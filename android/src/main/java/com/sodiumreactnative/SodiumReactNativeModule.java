@@ -1161,7 +1161,7 @@ public class SodiumReactNativeModule extends ReactContextBaseJavaModule {
     return ArrayUtil.toWritableArray(ret);
   }
 
-  @ReactMethod(isBlockingSynchronousMethod = true)
+  @ReactMethod
   public void crypto_sign_verify_detached (
     ReadableArray sig,
     ReadableArray m,
