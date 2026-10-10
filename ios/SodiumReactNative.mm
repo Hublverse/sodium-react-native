@@ -1,6 +1,17 @@
 #import "SodiumReactNative.h"
 #import "sodium.h"
 #include "macros.h"
+#include "../cpp/secretstream_push.h"
+
+#import <React/RCTBridge.h>
+
+@interface RCTBridge (SodiumSecretstreamRuntime)
+- (void *)runtime;
+@end
+
+@interface SodiumReactNative ()
+@property (nonatomic, weak) RCTBridge *bridge;
+@end
 
 @implementation SodiumReactNative
 
@@ -713,6 +724,78 @@ RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(
                                                               _tag))
 
   RN_RETURN_BUFFERS_2(state, c, clen)
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(installSecretstreamPush)
+{
+  if (self.bridge == nil || ![self.bridge respondsToSelector:@selector(runtime)]) {
+    return @NO;
+  }
+  void *runtimePtr = [self.bridge runtime];
+  if (runtimePtr == NULL) {
+    return @NO;
+  }
+  try {
+    sodiumInstallSecretstreamPush(*reinterpret_cast<facebook::jsi::Runtime *>(runtimePtr));
+    return @YES;
+  } catch (...) {
+    return @NO;
+  }
+}
+
+RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(
+  crypto_secretstream_xchacha20poly1305_push_base64:(NSString *)stateB64
+  message:(NSString *)messageB64
+  ad:(NSString *)adB64
+  tag:(nonnull NSNumber *)tag)
+{
+  if (stateB64 == nil || messageB64 == nil) return @"ERR_BAD_MSG";
+
+  NSData *stateDecoded = [[NSData alloc] initWithBase64EncodedString:stateB64 options:0];
+  NSData *messageDecoded = messageB64.length == 0
+    ? [NSData data]
+    : [[NSData alloc] initWithBase64EncodedString:messageB64 options:0];
+  NSData *adDecoded = (adB64 == nil || adB64.length == 0)
+    ? [NSData data]
+    : [[NSData alloc] initWithBase64EncodedString:adB64 options:0];
+
+  if (stateDecoded == nil || messageDecoded == nil || adDecoded == nil) return @"FAILURE";
+  if (stateDecoded.length != crypto_secretstream_xchacha20poly1305_statebytes()) return @"ERR_BAD_STATE";
+
+  NSMutableData *stateData = [stateDecoded mutableCopy];
+  const unsigned char *messageBytes = messageDecoded.length == 0
+    ? NULL
+    : (const unsigned char *)messageDecoded.bytes;
+  const unsigned char *adBytes = adDecoded.length == 0
+    ? NULL
+    : (const unsigned char *)adDecoded.bytes;
+  unsigned long long mlen = messageDecoded.length;
+  unsigned long long adlen = adDecoded.length;
+  unsigned long long clen = 0;
+  size_t ciphertextCapacity = (size_t)mlen + crypto_secretstream_xchacha20poly1305_ABYTES;
+  unsigned char *ciphertext = (unsigned char *)malloc(ciphertextCapacity);
+  if (ciphertext == NULL) return @"FAILURE";
+
+  int rc = crypto_secretstream_xchacha20poly1305_push(
+    (crypto_secretstream_xchacha20poly1305_state *)stateData.mutableBytes,
+    ciphertext,
+    &clen,
+    messageBytes,
+    mlen,
+    adBytes,
+    adlen,
+    [tag unsignedCharValue]
+  );
+  if (rc != 0) {
+    free(ciphertext);
+    return @"FAILURE";
+  }
+
+  NSMutableData *packed = [NSMutableData dataWithCapacity:stateData.length + (NSUInteger)clen];
+  [packed appendData:stateData];
+  [packed appendBytes:ciphertext length:(NSUInteger)clen];
+  free(ciphertext);
+  return [packed base64EncodedStringWithOptions:0];
 }
 
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(

@@ -72,6 +72,41 @@ export function crypto_secretstream_xchacha20poly1305_init_push(
   );
 }
 
+type SecretstreamPushBytes = (
+  state: Uint8Array,
+  cipherText: Uint8Array,
+  message: Uint8Array,
+  additionalData: Uint8Array | null,
+  tag: number
+) => number;
+
+type SecretstreamGlobals = typeof globalThis & {
+  __sodiumSecretstreamPushBytes?: SecretstreamPushBytes;
+};
+
+function secretstreamPushBytes(): SecretstreamPushBytes {
+  const globals = globalThis as SecretstreamGlobals;
+  if (typeof globals.__sodiumSecretstreamPushBytes === 'function') {
+    return globals.__sodiumSecretstreamPushBytes;
+  }
+  if (typeof Libsodium.installSecretstreamPush !== 'function') {
+    throw new Error(
+      'crypto_secretstream_xchacha20poly1305_push_bytes is missing. Rebuild the app after updating sodium-react-native-direct.'
+    );
+  }
+  if (Libsodium.installSecretstreamPush() !== true) {
+    throw new Error(
+      'crypto_secretstream_xchacha20poly1305_push_bytes failed to install.'
+    );
+  }
+  if (typeof globals.__sodiumSecretstreamPushBytes !== 'function') {
+    throw new Error(
+      'crypto_secretstream_xchacha20poly1305_push_bytes failed to install.'
+    );
+  }
+  return globals.__sodiumSecretstreamPushBytes;
+}
+
 /**
  * Encrypts a message with a certain tag and optional additional data.
  * https://sodium-friends.github.io/docs/docs/streamencryption#crypto_secretstream_xchacha20poly1305_push
@@ -83,26 +118,20 @@ export function crypto_secretstream_xchacha20poly1305_push(
   add_data: Uint8Array | null,
   tag: Uint8Array
 ) {
-  const nativeResult = Libsodium.crypto_secretstream_xchacha20poly1305_push(
-    ...Array.from([state, cipherText, message, add_data, tag], mapArgs)
+  const result = secretstreamPushBytes()(
+    state,
+    cipherText,
+    message,
+    add_data,
+    tag[0] ?? 0
   );
-  if (typeof nativeResult === 'string') {
+  if (result !== 0) {
     throw new Error(
-      `crypto_secretstream_xchacha20poly1305_push execution failed: ${nativeResult}.`
+      `crypto_secretstream_xchacha20poly1305_push execution failed: ${String(
+        result
+      )}.`
     );
   }
-  const resultBuf = new Uint8Array(nativeResult);
-  state.set(
-    resultBuf.subarray(
-      0,
-      constants.crypto_secretstream_xchacha20poly1305_STATEBYTES
-    )
-  );
-  cipherText.set(
-    resultBuf.subarray(
-      constants.crypto_secretstream_xchacha20poly1305_STATEBYTES
-    )
-  );
 }
 
 /**

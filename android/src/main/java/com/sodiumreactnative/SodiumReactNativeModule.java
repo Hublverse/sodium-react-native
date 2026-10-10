@@ -1,5 +1,7 @@
 package com.sodiumreactnative;
 
+import android.util.Base64;
+
 import java.io.*;
 import java.util.Map;
 import java.util.HashMap;
@@ -7,6 +9,7 @@ import java.util.Arrays;
 
 import androidx.annotation.NonNull;
 
+import com.facebook.react.bridge.JavaScriptContextHolder;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -884,6 +887,67 @@ public class SodiumReactNativeModule extends ReactContextBaseJavaModule {
     byte ret[] = outputStream.toByteArray( );
 
     return ArrayUtil.toWritableArray(ret);
+  }
+
+  private native boolean nativeInstallSecretstreamPush(long runtimePointer);
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  public boolean installSecretstreamPush() {
+    try {
+      JavaScriptContextHolder holder = getReactApplicationContext().getJavaScriptContextHolder();
+      if (holder == null || holder.get() == 0L) {
+        return false;
+      }
+      return nativeInstallSecretstreamPush(holder.get());
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  public String crypto_secretstream_xchacha20poly1305_push_base64 (
+      String stateB64,
+      String messageB64,
+      String adB64,
+      int tag
+  ) {
+    try {
+      byte[] state = decodeBase64(stateB64);
+      byte[] message = decodeBase64(messageB64);
+      byte[] ad = decodeBase64(adB64);
+      if (state.length != SodiumReactNative.crypto_secretstream_xchacha20poly1305_statebytes()) {
+        return "ERR_BAD_STATE";
+      }
+      byte[] ciphertext = new byte[message.length + SodiumReactNative.crypto_secretstream_xchacha20poly1305_abytes()];
+      byte[] tagBytes = new byte[] { (byte) (tag & 0xFF) };
+      int[] clen = new int[1];
+      int rc = SodiumReactNative.crypto_secretstream_xchacha20poly1305_push(
+        state,
+        ciphertext,
+        clen,
+        message,
+        message.length,
+        ad,
+        ad.length,
+        tagBytes
+      );
+      if (rc != 0) {
+        return "FAILURE";
+      }
+      byte[] packed = new byte[state.length + clen[0]];
+      System.arraycopy(state, 0, packed, 0, state.length);
+      System.arraycopy(ciphertext, 0, packed, state.length, clen[0]);
+      return Base64.encodeToString(packed, Base64.NO_WRAP);
+    } catch (Exception e) {
+      return "FAILURE";
+    }
+  }
+
+  private static byte[] decodeBase64(String value) {
+    if (value == null || value.length() == 0) {
+      return new byte[0];
+    }
+    return Base64.decode(value, Base64.NO_WRAP);
   }
 
   @ReactMethod(isBlockingSynchronousMethod = true)
